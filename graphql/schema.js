@@ -1,4 +1,5 @@
 
+
 const { GraphQLObjectType, GraphQLString, GraphQLSchema, GraphQLID, GraphQLFloat, GraphQLList } = require('graphql');
 const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
@@ -45,19 +46,36 @@ const RootQuery = new GraphQLObjectType({
             args: { eid: { type: GraphQLID } },
             resolve: async (_, args) => Employee.findById(args.eid)
         },
-        searchEmployeesByDeptOrDesignation: {
+        // searchEmployeesByDeptOrDesignation: {
+        //     type: new GraphQLList(EmployeeType),
+        //     args: {
+        //         department: { type: GraphQLString },
+        //         designation: { type: GraphQLString }
+        //     },
+        //     resolve: async (_, args) => {
+        //         let query = {};
+        //         if (args.department) query.department = args.department;
+        //         if (args.designation) query.designation = args.designation;
+        //         return Employee.find(query);
+        //     }
+        // },
+
+        searchEmployees: {
             type: new GraphQLList(EmployeeType),
             args: {
-                department: { type: GraphQLString },
-                designation: { type: GraphQLString }
+                searchTerm: { type: GraphQLString }
             },
-            resolve: async (_, args) => {
-                let query = {};
-                if (args.department) query.department = args.department;
-                if (args.designation) query.designation = args.designation;
+            resolve: async (_, { searchTerm }) => {
+                const query = {
+                    $or: [
+                        { department: { $regex: searchTerm, $options: 'i' } },
+                        { designation: { $regex: searchTerm, $options: 'i' } }
+                    ]
+                };
                 return Employee.find(query);
             }
         },
+        
         login: {
             type: GraphQLString,
             args: {
@@ -67,11 +85,8 @@ const RootQuery = new GraphQLObjectType({
             resolve: async (_, args) => {
                 const user = await User.findOne({ username: args.username });
                 if (!user) return "User not found!";
-
-                // Compare password with the hashed password in the database
                 const isMatch = await bcrypt.compare(args.password, user.password);
                 if (!isMatch) return "Invalid password!";
-
                 return "Login successful!";
             }
         }
@@ -90,7 +105,6 @@ const Mutation = new GraphQLObjectType({
                 password: { type: GraphQLString }
             },
             resolve: async (_, args) => {
-                // Validation
                 if (!args.username || !args.email || !args.password) {
                     throw new Error("All fields are required.");
                 }
@@ -101,10 +115,8 @@ const Mutation = new GraphQLObjectType({
                     throw new Error("Password must be at least 6 characters.");
                 }
 
-                // ✅ Hash the password before saving
                 const hashedPassword = await bcrypt.hash(args.password, 10);
 
-                // ✅ Save User with hashed password
                 const user = new User({
                     username: args.username,
                     email: args.email,
@@ -114,6 +126,7 @@ const Mutation = new GraphQLObjectType({
                 return user.save();
             }
         },
+
         addEmployee: {
             type: EmployeeType,
             args: {
@@ -128,22 +141,27 @@ const Mutation = new GraphQLObjectType({
                 employee_photo: { type: GraphQLString }
             },
             resolve: async (_, args) => {
-                // Validation
-                if (!args.first_name || !args.last_name || !args.email || !args.designation || !args.salary || !args.department) {
-                    throw new Error("All fields are required.");
-                }
-                if (!args.email.includes("@")) {
-                    throw new Error("Invalid email format.");
-                }
-                if (args.salary < 1000) {
-                    throw new Error("Salary must be at least 1000.");
-                }
+                console.log("🟢 Received addEmployee args:", args);
+                try {
+                    if (!args.first_name || !args.last_name || !args.email || !args.designation || !args.salary || !args.department) {
+                        throw new Error("All fields are required.");
+                    }
+                    if (!args.email.includes("@")) {
+                        throw new Error("Invalid email format.");
+                    }
+                    if (args.salary < 1000) {
+                        throw new Error("Salary must be at least 1000.");
+                    }
 
-                // Save Employee
-                const employee = new Employee(args);
-                return employee.save();
+                    const employee = new Employee(args);
+                    return await employee.save();
+                } catch (err) {
+                    console.error("❌ Error saving employee:", err);
+                    throw new Error(err.message);
+                }
             }
         },
+
         updateEmployee: {
             type: EmployeeType,
             args: {
@@ -159,21 +177,14 @@ const Mutation = new GraphQLObjectType({
                 employee_photo: { type: GraphQLString }
             },
             resolve: async (_, args) => {
-                // Validation
-                if (!args.eid) {
-                    throw new Error("Employee ID is required.");
-                }
-                if (args.email && !args.email.includes("@")) {
-                    throw new Error("Invalid email format.");
-                }
-                if (args.salary && args.salary < 1000) {
-                    throw new Error("Salary must be at least 1000.");
-                }
+                if (!args.eid) throw new Error("Employee ID is required.");
+                if (args.email && !args.email.includes("@")) throw new Error("Invalid email format.");
+                if (args.salary && args.salary < 1000) throw new Error("Salary must be at least 1000.");
 
-                // Update Employee
                 return Employee.findByIdAndUpdate(args.eid, { $set: args }, { new: true });
             }
         },
+
         deleteEmployee: {
             type: GraphQLString,
             args: {
